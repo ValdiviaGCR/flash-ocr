@@ -1,81 +1,64 @@
 import tkinter as tk
+from tkinter import messagebox
 import easyocr
-from PIL import Image, ImageTk
 import subprocess
 import os
 import time
 
-# --- CONFIGURACIÓN DEL MOTOR ---
-# Esto descarga el modelo la primera vez (pesa unos 150MB)
+# Cargamos el motor una sola vez
 reader = easyocr.Reader(['es'], gpu=False)
 
 
-def realizar_ocr(img_recortada):
-    # Guardar recorte temporal para que easyocr lo lea
-    img_recortada.save("crop.png")
-    resultados = reader.readtext("crop.png", detail=0)
-    texto = "\n".join(resultados)
+def iniciar_ocr_nativo():
+    # 1. Definimos el nombre del archivo temporal
+    temp_file = os.path.expanduser("~/screenshot_temp.png")
 
-    # Mostrar en la ventana principal
-    txt_output.delete("1.0", tk.END)
-    txt_output.insert(tk.END, texto)
-    os.remove("crop.png")
-    root.deiconify()  # Regresar la ventana principal
+    # 2. Llamamos al capturador nativo de GNOME
+    # -a abre el selector de área directamente
+    # -f guarda el resultado en el archivo
+    try:
+        root.withdraw()  # Escondemos nuestra ventana
 
+        # Este comando abre la interfaz nativa de Ubuntu para seleccionar área
+        subprocess.run(["gnome-screenshot", "-a", "-f", temp_file], check=True)
 
-def iniciar_captura():
-    root.withdraw()  # Esconder la ventana para que no salga en la foto
-    time.sleep(0.5)  # Pausa para que desaparezca
+        if os.path.exists(temp_file):
+            # 3. Procesamos la imagen que el sistema nos entregó
+            lbl_status.config(text="Leyendo texto...", fg="orange")
+            root.deiconify()
 
-    # 1. Tomar captura de pantalla completa
-    subprocess.run(["scrot", "temp.png"], check=True)
+            resultados = reader.readtext(temp_file, detail=0)
+            texto_final = "\n".join(resultados)
 
-    # 2. Crear ventana de selección sobre la foto
-    ventana_sel = tk.Toplevel()
-    ventana_sel.attributes("-fullscreen", True)
+            txt_output.delete("1.0", tk.END)
+            txt_output.insert(tk.END, texto_final)
 
-    img_full = Image.open("temp.png")
-    img_tk = ImageTk.PhotoImage(img_full)
+            # Limpiar
+            os.remove(temp_file)
+            lbl_status.config(text="● Listo", fg="green")
+        else:
+            root.deiconify()
+            lbl_status.config(text="Captura cancelada", fg="red")
 
-    canvas = tk.Canvas(ventana_sel, cursor="cross", highlightthickness=0)
-    canvas.pack(fill="both", expand=True)
-    canvas.create_image(0, 0, anchor="nw", image=img_tk)
-    canvas.image = img_tk  # Mantener referencia
-
-    coords = {"x": 0, "y": 0, "rect": None}
-
-    def start_rect(e):
-        coords["x"], coords["y"] = e.x, e.y
-        coords["rect"] = canvas.create_rectangle(e.x, e.y, e.x, e.y, outline="green", width=2)
-
-    def draw_rect(e):
-        canvas.coords(coords["rect"], coords["x"], coords["y"], e.x, e.y)
-
-    def end_rect(e):
-        x1, y1 = min(coords["x"], e.x), min(coords["y"], e.y)
-        x2, y2 = max(coords["x"], e.x), max(coords["y"], e.y)
-
-        recorte = img_full.crop((x1, y1, x2, y2))
-        ventana_sel.destroy()
-        os.remove("temp.png")
-        realizar_ocr(recorte)
-
-    canvas.bind("<ButtonPress-1>", start_rect)
-    canvas.bind("<B1-Motion>", draw_rect)
-    canvas.bind("<ButtonRelease-1>", end_rect)
-    ventana_sel.bind("<Escape>", lambda e: [ventana_sel.destroy(), root.deiconify()])
+    except Exception as e:
+        root.deiconify()
+        messagebox.showerror("Error",
+                             "Asegúrate de tener gnome-screenshot instalado:\nsudo apt install gnome-screenshot")
 
 
-# --- VENTANA PRINCIPAL ---
+# --- INTERFAZ ---
 root = tk.Tk()
-root.title("OCR Simple Ubuntu")
-root.geometry("400x400")
+root.title("Flash OCR Portal")
+root.geometry("500x500")
 
-btn = tk.Button(root, text="CAPTURAR PANTALLA", command=iniciar_captura,
-                bg="blue", fg="white", font=("Arial", 12, "bold"), pady=10)
+lbl_status = tk.Label(root, text="● Motor Cargado", fg="green", font=("Arial", 10))
+lbl_status.pack(pady=5)
+
+btn = tk.Button(root, text="SELECCIONAR ÁREA", command=iniciar_ocr_nativo,
+                bg="#1a73e8", fg="white", font=("Arial", 12, "bold"), padx=20, pady=10)
 btn.pack(pady=20)
 
-txt_output = tk.Text(root, font=("Arial", 11))
-txt_output.pack(padx=10, pady=10, fill="both", expand=True)
+txt_output = tk.Text(root, font=("Consolas", 11), padx=10, pady=10)
+txt_output.pack(fill="both", expand=True, padx=15, pady=15)
 
 root.mainloop()
