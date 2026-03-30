@@ -1,144 +1,81 @@
 import tkinter as tk
-from tkinter import font, messagebox
 import easyocr
 from PIL import Image, ImageTk
-import threading
-import io
-import os
 import subprocess
-import time  # <--- IMPORTADO CORRECTAMENTE AHORA
+import os
+import time
+
+# --- CONFIGURACIÓN DEL MOTOR ---
+# Esto descarga el modelo la primera vez (pesa unos 150MB)
+reader = easyocr.Reader(['es'], gpu=False)
 
 
-class SnippingSurface(tk.Toplevel):
-    def __init__(self, parent, image_path, on_snip_callback):
-        super().__init__(parent)
-        self.on_snip_callback = on_snip_callback
+def realizar_ocr(img_recortada):
+    # Guardar recorte temporal para que easyocr lo lea
+    img_recortada.save("crop.png")
+    resultados = reader.readtext("crop.png", detail=0)
+    texto = "\n".join(resultados)
 
-        # Cargar la captura previa
-        self.original_image = Image.open(image_path)
-        self.tk_image = ImageTk.PhotoImage(self.original_image)
-
-        self.attributes('-fullscreen', True)
-        self.attributes('-topmost', True)
-        self.overrideredirect(True)
-
-        self.canvas = tk.Canvas(self, cursor="cross", highlightthickness=0)
-        self.canvas.pack(fill=tk.BOTH, expand=True)
-        self.canvas.create_image(0, 0, anchor="nw", image=self.tk_image)
-
-        # Efecto de oscurecimiento (simulado con un rectángulo semi-transparente si el sistema lo permite)
-        # En Linux, a veces el stipple falla, así que usamos un borde verde chillón para la selección.
-        self.start_x = self.start_y = self.rect = None
-        self.canvas.bind("<ButtonPress-1>", self.start_rect)
-        self.canvas.bind("<B1-Motion>", self.draw_rect)
-        self.canvas.bind("<ButtonRelease-1>", self.end_rect)
-        self.bind("<Escape>", lambda e: self.destroy())
-
-    def start_rect(self, event):
-        self.start_x, self.start_y = event.x, event.y
-        self.rect = self.canvas.create_rectangle(self.start_x, self.start_y, 1, 1,
-                                                 outline='#00ff00', width=3)
-
-    def draw_rect(self, event):
-        self.canvas.coords(self.rect, self.start_x, self.start_y, event.x, event.y)
-
-    def end_rect(self, event):
-        x1, y1 = min(self.start_x, event.x), min(self.start_y, event.y)
-        x2, y2 = max(self.start_x, event.x), max(self.start_y, event.y)
-
-        # Extraer el área de la imagen original
-        cropped_img = self.original_image.crop((x1, y1, x2, y2))
-        self.on_snip_callback(cropped_img)
-        self.destroy()
+    # Mostrar en la ventana principal
+    txt_output.delete("1.0", tk.END)
+    txt_output.insert(tk.END, texto)
+    os.remove("crop.png")
+    root.deiconify()  # Regresar la ventana principal
 
 
-class ModernOCRApp:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Flash OCR Linux (Snapshot Mode)")
-        self.root.geometry("700x600")
-        self.root.configure(bg="#f0f2f5")
+def iniciar_captura():
+    root.withdraw()  # Esconder la ventana para que no salga en la foto
+    time.sleep(0.5)  # Pausa para que desaparezca
 
-        self.main_font = font.Font(family="DejaVu Sans", size=10)
-        self.title_font = font.Font(family="DejaVu Sans", size=14, weight="bold")
+    # 1. Tomar captura de pantalla completa
+    subprocess.run(["scrot", "temp.png"], check=True)
 
-        # Header
-        header = tk.Frame(root, bg="#ffffff", height=60)
-        header.pack(fill=tk.X, side=tk.TOP)
-        tk.Label(header, text="⚡ Flash OCR Linux", font=self.title_font, bg="#ffffff", fg="#1a73e8").pack(pady=15,
-                                                                                                          padx=20,
-                                                                                                          side=tk.LEFT)
-        self.lbl_estado = tk.Label(header, text="Iniciando...", font=self.main_font, bg="#ffffff", fg="#5f6368")
-        self.lbl_estado.pack(pady=15, padx=20, side=tk.RIGHT)
+    # 2. Crear ventana de selección sobre la foto
+    ventana_sel = tk.Toplevel()
+    ventana_sel.attributes("-fullscreen", True)
 
-        # Botones
-        ctrl_frame = tk.Frame(root, bg="#f0f2f5")
-        ctrl_frame.pack(pady=20)
+    img_full = Image.open("temp.png")
+    img_tk = ImageTk.PhotoImage(img_full)
 
-        self.btn_snip = tk.Button(ctrl_frame, text="NUEVA CAPTURA", command=self.pre_capture,
-                                  bg="#1a73e8", fg="white", font=self.main_font, padx=20, pady=10,
-                                  borderwidth=0, state=tk.DISABLED)
-        self.btn_snip.pack(side=tk.LEFT, padx=10)
+    canvas = tk.Canvas(ventana_sel, cursor="cross", highlightthickness=0)
+    canvas.pack(fill="both", expand=True)
+    canvas.create_image(0, 0, anchor="nw", image=img_tk)
+    canvas.image = img_tk  # Mantener referencia
 
-        self.btn_copy = tk.Button(ctrl_frame, text="COPIAR TEXTO", command=self.copiar_texto,
-                                  bg="#34a853", fg="white", font=self.main_font, padx=20, pady=10,
-                                  borderwidth=0, state=tk.DISABLED)
-        self.btn_copy.pack(side=tk.LEFT, padx=10)
+    coords = {"x": 0, "y": 0, "rect": None}
 
-        # Área de Texto
-        self.txt_out = tk.Text(root, font=("Consolas", 11), wrap=tk.WORD, bg="#ffffff", padx=15, pady=15)
-        self.txt_out.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 20))
+    def start_rect(e):
+        coords["x"], coords["y"] = e.x, e.y
+        coords["rect"] = canvas.create_rectangle(e.x, e.y, e.x, e.y, outline="green", width=2)
 
-        threading.Thread(target=self.cargar_motor, daemon=True).start()
+    def draw_rect(e):
+        canvas.coords(coords["rect"], coords["x"], coords["y"], e.x, e.y)
 
-    def cargar_motor(self):
-        try:
-            self.reader = easyocr.Reader(['es'], gpu=False)
-            self.root.after(0, lambda: [self.lbl_estado.config(text="● Motor Listo", fg="#34a853"),
-                                        self.btn_snip.config(state=tk.NORMAL)])
-        except:
-            self.root.after(0, lambda: self.lbl_estado.config(text="Error Motor", fg="red"))
+    def end_rect(e):
+        x1, y1 = min(coords["x"], e.x), min(coords["y"], e.y)
+        x2, y2 = max(coords["x"], e.x), max(coords["y"], e.y)
 
-    def pre_capture(self):
-        self.root.withdraw()
-        time.sleep(0.4)  # Tiempo para que la ventana desaparezca
+        recorte = img_full.crop((x1, y1, x2, y2))
+        ventana_sel.destroy()
+        os.remove("temp.png")
+        realizar_ocr(recorte)
 
-        temp_file = "full_screen_temp.png"
-        try:
-            # Captura con scrot
-            subprocess.run(["scrot", temp_file], check=True)
-            # Abrir selector
-            SnippingSurface(self.root, temp_file, self.procesar_recorte)
-        except Exception as e:
-            messagebox.showerror("Error", f"Asegúrate de tener 'scrot' instalado:\nsudo apt install scrot\n\n{e}")
-            self.root.deiconify()
-        finally:
-            # Borrar temporal después de un momento
-            self.root.after(1000, lambda: os.remove(temp_file) if os.path.exists(temp_file) else None)
+    canvas.bind("<ButtonPress-1>", start_rect)
+    canvas.bind("<B1-Motion>", draw_rect)
+    canvas.bind("<ButtonRelease-1>", end_rect)
+    ventana_sel.bind("<Escape>", lambda e: [ventana_sel.destroy(), root.deiconify()])
 
-    def procesar_recorte(self, img_obj):
-        self.root.deiconify()
-        self.lbl_estado.config(text="Procesando OCR...", fg="#fbbc04")
 
-        def run():
-            try:
-                buf = io.BytesIO()
-                img_obj.save(buf, format='PNG')
-                results = self.reader.readtext(buf.getvalue(), detail=0)
-                texto = "\n\n".join(results)
-                self.root.after(0, lambda: self.mostrar_resultado(texto))
-            except Exception as e:
-                self.root.after(0, lambda: self.lbl_estado.config(text="Error OCR", fg="red"))
+# --- VENTANA PRINCIPAL ---
+root = tk.Tk()
+root.title("OCR Simple Ubuntu")
+root.geometry("400x400")
 
-        threading.Thread(target=run, daemon=True).start()
+btn = tk.Button(root, text="CAPTURAR PANTALLA", command=iniciar_captura,
+                bg="blue", fg="white", font=("Arial", 12, "bold"), pady=10)
+btn.pack(pady=20)
 
-    def mostrar_resultado(self, texto):
-        self.txt_out.delete('1.0', tk.END)
-        self.txt_out.insert(tk.END, texto)
-        self.lbl_estado.config(text="● Escaneo listo", fg="#34a853")
-        self.btn_copy.config(state=tk.NORMAL)
+txt_output = tk.Text(root, font=("Arial", 11))
+txt_output.pack(padx=10, pady=10, fill="both", expand=True)
 
-    def copiar_texto(self):
-        self.root.clipboard_clear()
-        self.root.clipboard_append(self.txt_out.get('1.0', tk.END).strip())
-        self.lbl_estado.config(text="● ¡Copiado al portapapeles!", fg="#1a73e8")
+root.mainloop()
