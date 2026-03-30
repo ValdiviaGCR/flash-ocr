@@ -1,0 +1,52 @@
+# Entorno Virtual
+# Ignora la carpeta donde se instalan las librerias y el interprete
+.venv/
+venv/
+ENV/
+env/
+
+# Python - Archivos temporales y cache
+# Ignora los archivos compilados que Python genera al ejecutarse
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.python-version
+
+# Modelos de Machine Learning (EasyOCR)
+# EasyOCR descarga modelos en una carpeta oculta en el usuario,
+# pero si decides moverlos al proyecto, esta linea los ignora.
+*.pth
+*.pkl
+models/
+
+# Imagenes y capturas temporales
+# Evita subir capturas de pantalla de prueba o resultados del OCR
+*.png
+*.jpg
+*.jpeg
+*.bmp
+*.gif
+!README_assets/*.png  # Permite imagenes solo si son para documentar el README
+
+# Distribucion y empaquetado
+# Si alguna vez conviertes el programa en un .exe
+dist/
+build/
+*.spec
+
+# IDEs y Editores de texto
+# Configuraciones especificas de PyCharm o VS Code
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Archivos de sistema
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Archivos temporales del instalador .bat
+uninstall_list.txt
+borrar.txt
