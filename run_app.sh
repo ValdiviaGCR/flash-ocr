@@ -42,7 +42,7 @@ fi
 
 # 3. Lanzar la aplicacion
 echo "[+] Lanzando Flash OCR..."
-./.venv/bin/python3 main.py &
+./.venv/bin/python3 ocr_linux.py &
 
 echo "-----------------------------------------"
 exit 0
